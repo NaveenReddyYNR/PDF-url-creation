@@ -1,0 +1,809 @@
+import { yupResolver } from '@hookform/resolvers/yup';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import { Button, Container, Divider, FormControlLabel, Grid, MenuItem, Radio, RadioGroup, Typography, Chip } from '@mui/material';
+import { makeStyles } from '@mui/styles';
+import axios from 'axios';
+import { useEffect, useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { useNavigate } from 'react-router-dom';
+import * as yup from 'yup';
+import ErrorAlert from '../../../../components/alert/ErrorAlert';
+import SuccessAlert from '../../../../components/alert/SuccessAlert';
+import { FormProvider, RHFSelect, RHFTextField } from '../../../../components/hook-form';
+import Loader from '../../../../components/loader/Loader';
+import { playerKeyList } from '../../../../mock-data/MockData';
+import { getAllSports } from '../../../../services/sportService';
+import { getAllPlayerRole } from '../../../../services/playerService';
+import { getAllTournaments } from '../../../../services/tournamentService';
+import { getAllTeams } from '../../../../services/teamServices';
+import { getAllCountry } from '../../../../services/countryServices';
+import { addPlayerToken, addPlayerTokenMinted, getAllPlayerKey, getAllPlayerBySport, getPlayerDetails } from '../../../../services/playerCounterServices';
+import { PLAYER_SERVICE_BASE_URL } from '../../../../config';
+import { BAD_REQUEST, GET_SUCCESS, ERROR_MSG, NETWORK_ERROR, ACCESS_FORBIDDEN, ACCESS_FORBIDDEN_MSG, CREATE_SUCCESS } from '../../../../constant';
+
+const useStyles = makeStyles((theme) => ({
+  btn: {
+    margin: 10,
+  },
+  btnContainer: {
+    marginTop: 40,
+    flexWrap: 'nowrap',
+  },
+  section: {
+    marginTop: 20,
+    border: '1px solid',
+    borderColor: theme.palette.primary.main,
+    padding: 20,
+    borderRadius: 10,
+  },
+  sectionContainer: {
+    boarder: '1px solid #EBF8F2',
+    padding: 20,
+    borderRadius: 10,
+  },
+  mandatory: {
+    color: 'red',
+  },
+  menuPaper: {
+    maxHeight: 100,
+  },
+  icon: {
+    border: '1px solid',
+    borderColor: theme.palette.primary.main,
+    marginTop: 10,
+    objectFit: 'fill',
+    padding: 5,
+    borderRadius: 8,
+  },
+  pageDirection: {
+    display: "flex",
+    flexWrap: 'wrap',
+    alignItems: "center",
+    marginBottom: 3,
+    [theme.breakpoints.down('md')]: {
+      fontSize: 13,
+    },
+  },
+}));
+
+const validationSchema = yup.object().shape({
+  sportId: yup.string().required('Sport is required'),
+  firstName: yup
+    .string()
+    .required('First Name is required')
+    .matches(/^([a-zA-Z ]){3,25}$/, 'First Name should be a valid with length between 3 and 25 characters'),
+  lastName: yup
+    .string()
+    .required('Last Name is required')
+    .matches(/^([a-zA-Z ]){3,25}$/, 'Last Name should be a valid with length between 3 and 25 characters'),
+  abbreviation: yup
+    .string()
+    .required('Abbrevation is required')
+    .matches(/^([a-zA-Z ]){3,3}$/, 'Abbrevation should be a valid with length 3 characters'),
+  playerRoleId: yup.string().required('Player Role is required'),
+  country: yup.string().required('Nationality is required').typeError('Country Required'),
+  aboutPlayer: yup
+    .string()
+    .required('About Player is required')
+    .min(20, 'Min length should be 20 characters')
+    .max(300, 'Max length should be 300 characters'),
+  counterType: yup.string().required('Counter type is required'),
+  tournamentId: yup.string().required('Tournament is required'),
+  teamId: yup.string().required('Team is required'),
+  rewardDate: yup.string().required('Reward date is required'),
+  playerKey: yup.string().required('Player key is required'),
+  totalSupply: yup
+    .string()
+    .required('Total supply is required')
+    .matches(/^([1-9][0-9]{0,3}|10000)$/, 'Enter the valid digit between 1 to 10000'),
+  houseWalletAddress: yup.string().required('House wallet address is required'),
+});
+
+export default function PlayerCounterCreation() {
+  const classes = useStyles();
+  const navigate = useNavigate();
+  const [alertMsg, setAlertMsg] = useState('');
+  const [isSuccess, setSuccess] = useState(false);
+  const [isLoading, setLoading] = useState(false);
+  const [isError, setError] = useState(false);
+  const [counterTypeValue, setCounterTypeValue] = useState(0);
+  const [allSport, setAllSport] = useState([]);
+  const [playerRoles, setPlayerRoles] = useState([]);
+  const [allTournament, setAllTournament] = useState([]);
+  const [allTeams, setAllTeams] = useState([]);
+  const [allCountry, setAllCountry] = useState([]);
+  const [mobileIconUrl, setMobileIconUrl] = useState(null);
+  const [webIconUrl, setWebIconUrl] = useState(null);
+  const [playerData, setPlayerData] = useState(null);
+  const [allSportPlayers, setAllSportPlayers] = useState(null);
+  const [sportPlayersData, setSportPlayerData] = useState(null);
+  const [allPlayerKey, setAllPlayerKey] = useState(null);
+  const accessToken = localStorage.getItem('accessToken');
+
+  const initialValues = {
+    sportId: '',
+    playerId: '',
+    firstName: '',
+    lastName: '',
+    abbreviation: '',
+    playerRoleId: '',
+    country: '',
+    aboutPlayer: '',
+    tournamentId: '',
+    teamId: '',
+    rewardDate: '',
+    totalSupply: '',
+    houseWalletAddress: '',
+    mobileIcon: mobileIconUrl,
+    webIcon: webIconUrl,
+    status: '',
+    playerKey: '',
+    counterType: counterTypeValue,
+  };
+
+  const handleChange = (event) => {
+    setCounterTypeValue(event.target.value);
+  };
+
+  const methods = useForm({
+    mode: 'onChange',
+    resolver: yupResolver(validationSchema),
+    defaultValues: initialValues,
+  });
+  const { handleSubmit, watch, setValue } = methods;
+
+  const currentSportId = watch('sportId');
+  const currentTournamentId = watch('tournamentId');
+  const currentPlayerId = watch('playerId');
+
+
+  const onSubmit = async (data) => {
+
+    setLoading(true);
+    const payload = {
+      sportId: data.sportId,
+      playerId: data?.playerId || 0,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      abbreviation: data.abbreviation,
+      playerRoleId: data.playerRoleId,
+      country: data.country,
+      aboutPlayer: data.aboutPlayer,
+      tournamentId: data.tournamentId,
+      teamId: data?.teamId,
+      rewardDate: data?.rewardDate,
+      totalSupply: data?.totalSupply,
+      houseWalletAddress: data?.houseWalletAddress,
+      mobileIcon: mobileIconUrl,
+      webIcon: webIconUrl,
+      status: data?.status,
+      playerKey: data.playerKey,
+      counterType: counterTypeValue,
+    };
+
+
+    const res = await addPlayerToken(payload);
+    console.log(res);
+    if (res.status === CREATE_SUCCESS) {
+      setPlayerData(res.data.body);
+      setAlertMsg(res?.data?.message || 'Player Token Created Successfully');
+      setLoading(false);
+      setSuccess(true);
+    }
+    if (res.code === BAD_REQUEST) {
+      setLoading(false);
+      if (res.response.status === ACCESS_FORBIDDEN) {
+        setAlertMsg(res?.response?.data.message || res?.response?.data || ACCESS_FORBIDDEN_MSG);
+        setError(true);
+      }
+      else {
+        setError(true);
+        setAlertMsg(res?.response?.data.message || res?.response?.data?.error || res?.response?.data || ERROR_MSG);
+      }
+    }
+    setLoading(false);
+  };
+
+  const fetchAllSport = async () => {
+    const res = await getAllSports();
+    if (res.status === GET_SUCCESS) {
+      setAllSport(res?.data);
+    }
+    if (res.code === BAD_REQUEST) {
+      setLoading(false);
+      if (res.response.status === ACCESS_FORBIDDEN) {
+        setAlertMsg(res?.response?.data.message || res?.response?.data || ACCESS_FORBIDDEN_MSG);
+        setError(true);
+      }
+      else {
+        setError(true);
+        setAlertMsg(res?.response?.data.message || res?.response?.data?.error || res?.response?.data || ERROR_MSG);
+      }
+    }
+  };
+
+  const fetchAllPlayerRole = async () => {
+    const res = await getAllPlayerRole(currentSportId);
+    if (res.status === GET_SUCCESS) {
+      setPlayerRoles(res?.data);
+    }
+    if (res.code === BAD_REQUEST) {
+      setLoading(false);
+      if (res.response.status === ACCESS_FORBIDDEN) {
+        setAlertMsg(res?.response?.data.message || res?.response?.data || ACCESS_FORBIDDEN_MSG);
+        setError(true);
+      }
+      else {
+        setError(true);
+        setAlertMsg(res?.response?.data.message || res?.response?.data?.error || res?.response?.data || ERROR_MSG);
+      }
+    }
+  };
+
+  const fetchAllTournaments = async () => {
+    const res = await getAllTournaments();
+    if (res.status === GET_SUCCESS) {
+      const data = res?.data.sort((a, b) => {
+        if (a.name < b.name) {
+          return -1;
+        }
+        if (a.name > b.name) {
+          return 1;
+        }
+        return 0;
+      });
+      setAllTournament(data);
+    }
+    if (res.code === BAD_REQUEST) {
+      setLoading(false);
+      if (res.response.status === ACCESS_FORBIDDEN) {
+        setAlertMsg(res?.response?.data.message || res?.response?.data || ACCESS_FORBIDDEN_MSG);
+        setError(true);
+      }
+      else {
+        setError(true);
+        setAlertMsg(res?.response?.data.message || res?.response?.data?.error || res?.response?.data || ERROR_MSG);
+      }
+    }
+  };
+
+  const fetchAllTeams = async () => {
+    const res = await getAllTeams(currentTournamentId);
+    if (res.status === GET_SUCCESS) {
+      setAllTeams(res?.data);
+    }
+    if (res.code === BAD_REQUEST) {
+      setLoading(false);
+      if (res.response.status === ACCESS_FORBIDDEN) {
+        setAlertMsg(res?.response?.data.message || res?.response?.data || ACCESS_FORBIDDEN_MSG);
+        setError(true);
+      }
+      else {
+        setError(true);
+        setAlertMsg(res?.response?.data.message || res?.response?.data?.error || res?.response?.data || ERROR_MSG);
+      }
+    }
+  };
+
+  const fetchAllPlayerKey = async () => {
+    const res = await getAllPlayerKey();
+    if (res.status === GET_SUCCESS) {
+      setAllPlayerKey(res?.data);
+    }
+    if (res.code === BAD_REQUEST) {
+      setLoading(false);
+      if (res.response.status === ACCESS_FORBIDDEN) {
+        setAlertMsg(res?.response?.data.message || res?.response?.data || ACCESS_FORBIDDEN_MSG);
+        setError(true);
+      }
+      else {
+        setError(true);
+        setAlertMsg(res?.response?.data.message || res?.response?.data?.error || res?.response?.data || ERROR_MSG);
+      }
+    }
+  };
+
+  const fetchAllCountry = async () => {
+    const res = await getAllCountry();
+    if (res.status === GET_SUCCESS) {
+      setAllCountry(res?.data);
+    }
+    if (res.code === BAD_REQUEST) {
+      setLoading(false);
+      if (res.response.status === ACCESS_FORBIDDEN) {
+        setAlertMsg(res?.response?.data.message || res?.response?.data || ACCESS_FORBIDDEN_MSG);
+        setError(true);
+      }
+      else {
+        setError(true);
+        setAlertMsg(res?.response?.data.message || res?.response?.data?.error || res?.response?.data || ERROR_MSG);
+      }
+    }
+  };
+
+  const handleMobIconUpload = async (e) => {
+    setLoading(true);
+    if (e.target.files.length) {
+      const formData = new FormData();
+      formData.append('playerCounterIcon', e.target.files[0]);
+      formData.append('name', e.target.files[0].name);
+
+      try {
+        const response = await axios({
+          method: 'post',
+          url: `${PLAYER_SERVICE_BASE_URL}/document/upload`,
+          data: formData,
+          headers: {
+            'Content-Type': 'multipart/form-data',
+            Authorization: `Bearer ${accessToken || ''}`,
+          },
+        })
+          .then((res) => {
+            setMobileIconUrl(res.data);
+            setLoading(false);
+          })
+          .catch((err) => {
+            if (err.code === NETWORK_ERROR) {
+              setLoading(false);
+              setError(true);
+              setAlertMsg(err?.message || ERROR_MSG);
+              document.getElementById('mobileIcon').value = '';
+            }
+            setLoading(false);
+          });
+      } catch (error) {
+        console.log(error);
+      }
+    } else {
+      setMobileIconUrl(null);
+    }
+    setLoading(false);
+  };
+
+  const handleWebIconUpload = async (e) => {
+    setLoading(true);
+    if (e.target.files.length) {
+      const formData = new FormData();
+      formData.append('playerCounterIcon', e.target.files[0]);
+      formData.append('name', e.target.files[0].name);
+      try {
+        const response = await axios({
+          method: 'post',
+          url: `${PLAYER_SERVICE_BASE_URL}/document/upload`,
+          data: formData,
+          headers: {
+            'Content-Type': 'multipart/form-data',
+            Authorization: `Bearer ${accessToken || ''}`,
+          },
+        })
+          .then((res) => setWebIconUrl(res.data))
+          .catch((err) => {
+            if (err.code === NETWORK_ERROR) {
+              setLoading(false);
+              setError(true);
+              setAlertMsg(err?.message || ERROR_MSG);
+              document.getElementById('webIcon').value = '';
+            }
+            setLoading(false);
+          });
+      } catch (error) {
+        console.log(error);
+      }
+    } else {
+      setWebIconUrl(null);
+    }
+    setLoading(false);
+  };
+
+  const mintPlayerToken = async () => {
+    setLoading(true);
+    const res = await addPlayerTokenMinted(playerData.id, playerData.houseWalletAddress);
+    if (res.status === GET_SUCCESS) {
+      setAlertMsg(res?.data?.message || 'Player Token Minted Successfully');
+      setLoading(false);
+      setSuccess(true);
+      setTimeout(() => {
+        navigate(-1);
+      }, 1000);
+    }
+    if (res.code === BAD_REQUEST) {
+      setLoading(false);
+      if (res.response.status === ACCESS_FORBIDDEN) {
+        setAlertMsg(res?.response?.data.message || res?.response?.data || ACCESS_FORBIDDEN_MSG);
+        setError(true);
+      }
+      else {
+        setError(true);
+        setAlertMsg(res?.response?.data.message || res?.response?.data?.error || res?.response?.data || ERROR_MSG);
+      }
+    }
+    setLoading(false);
+  };
+
+  const getRewardDate = () => {
+    const date = allTournament.find(x => x.id === Number(currentTournamentId))
+    if (date?.rewardDate) {
+      setValue('rewardDate', date?.rewardDate)
+    }
+    else {
+      setValue('rewardDate', '')
+    }
+  }
+
+  const handlePlayerDetails = () => {
+    if (currentPlayerId) {
+      return true
+    }
+    return false
+  }
+
+  const handlePlayerSelect = () => {
+    if (currentSportId) {
+      return false
+    }
+    return true
+  }
+
+  const fetchAllPlayerBySport = async () => {
+    setLoading(true);
+    const res = await getAllPlayerBySport(currentSportId)
+    console.log(res)
+    if (res.status === GET_SUCCESS) {
+      setLoading(false);
+      setAllSportPlayers(res?.data);
+    }
+    if (res.code === BAD_REQUEST) {
+      setLoading(false);
+      if (res?.response?.status === ACCESS_FORBIDDEN) {
+        setAlertMsg(res?.response?.data.message || res?.response?.data || ACCESS_FORBIDDEN_MSG);
+        setError(true);
+      }
+      else {
+        setError(true);
+        setAlertMsg(res?.response?.data.message || res?.response?.data?.error || res?.response?.data || ERROR_MSG);
+      }
+    }
+    setLoading(false);
+  }
+
+  const fetchPlayerDetails = async () => {
+    setLoading(true);
+    const res = await getPlayerDetails(currentPlayerId)
+    console.log('playerData---', res)
+    if (res.status === GET_SUCCESS) {
+      setLoading(false);
+      setSportPlayerData(res?.data);
+    }
+    if (res.code === BAD_REQUEST) {
+      setLoading(false);
+      if (res?.response?.status === ACCESS_FORBIDDEN) {
+        setAlertMsg(res?.response?.data.message || res?.response?.data || ACCESS_FORBIDDEN_MSG);
+        setError(true);
+      }
+      else {
+        setError(true);
+        setAlertMsg(res?.response?.data.message || res?.response?.data?.error || res?.response?.data || ERROR_MSG);
+      }
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    fetchAllSport();
+    fetchAllTournaments();
+    fetchAllCountry();
+    fetchAllPlayerKey();
+  }, []);
+
+  useEffect(() => {
+    if (currentSportId) {
+      fetchAllPlayerRole();
+      fetchAllPlayerBySport()
+    }
+    else {
+      setValue('playerId', '');
+      setValue('firstName', '');
+      setValue('lastName', '');
+      setValue('abbreviation', '');
+      setValue('country', '');
+      setValue('playerRoleId', '');
+      setValue('aboutPlayer', '');
+    }
+
+  }, [currentSportId]);
+
+  useEffect(() => {
+    if (currentPlayerId) {
+      fetchPlayerDetails();
+    }
+    else {
+      setValue('firstName', '');
+      setValue('lastName', '');
+      setValue('abbreviation', '');
+      setValue('country', '');
+      setValue('playerRoleId', '');
+      setValue('aboutPlayer', '');
+    }
+  }, [currentPlayerId]);
+
+  useEffect(() => {
+    if (currentTournamentId) {
+      fetchAllTeams();
+      getRewardDate()
+    }
+  }, [currentTournamentId]);
+
+  useEffect(() => {
+    if (sportPlayersData && Object.keys(sportPlayersData)?.length) {
+      setValue('firstName', sportPlayersData?.firstName);
+      setValue('lastName', sportPlayersData?.lastName);
+      setValue('abbreviation', sportPlayersData?.abbreviation);
+      setValue('country', sportPlayersData?.country);
+      setValue('playerRoleId', sportPlayersData?.playerRoleId);
+      setValue('aboutPlayer', sportPlayersData?.aboutPlayer);
+    }
+  }, [sportPlayersData, setValue]);
+
+  return (
+    <>
+      <Container maxWidth="xl">
+        <Button variant="outlined" onClick={() => navigate(-1)} >
+          <ChevronLeftIcon />
+          Back
+        </Button>
+        <Grid mt={'1%'}>
+          <Typography className={classes.pageDirection}>
+            Home <ChevronRightIcon /> Player Counter
+            <ChevronRightIcon /> Create New Player Counter
+          </Typography>
+        </Grid>
+        <FormProvider methods={methods} onSubmit={handleSubmit(onSubmit)}>
+
+          <div className={classes.section}>
+            <Typography variant="h6">Sports
+              <span className={classes.mandatory}>*</span>
+            </Typography>
+            <Grid container mb={2}>
+              <Grid item xs={12} sm={6} md={3}>
+                <RHFSelect name="sportId">
+                  <option value="">Select sport</option>
+                  {allSport?.map((item, index) => (
+                    <option key={index} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </RHFSelect>
+              </Grid>
+            </Grid>
+          </div>
+          <div className={classes.section}>
+            <Typography variant="h6">Player details</Typography>
+            <Grid container>
+
+              <Grid item xs={12} sm={6} md={3}>
+                <Typography>
+                  Player
+                </Typography>
+                <RHFSelect name="playerId" disabled={handlePlayerSelect()}>
+                  <option value="">Select player</option>
+                  {allSportPlayers?.map((item, index) => (
+                    <option key={index} value={item.id}>
+                      {`${item.firstName} ${item.lastName}`}
+                    </option>
+                  ))}
+                </RHFSelect>
+              </Grid>
+            </Grid>
+            <Divider sx={{ marginBottom: 2, marginTop: 2 }}>
+              <Chip label="OR" />
+            </Divider>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6} md={3}>
+                <Typography>
+                  First Name
+                  <span className={classes.mandatory}>*</span>
+                </Typography>
+                <RHFTextField name="firstName" disabled={handlePlayerDetails()} />
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Typography>
+                  Last Name
+                  <span className={classes.mandatory}>*</span>
+                </Typography>
+                <RHFTextField name="lastName" disabled={handlePlayerDetails()} />
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Typography>
+                  Abbreviation
+                  <span className={classes.mandatory}>*</span>
+                </Typography>
+                <RHFTextField name="abbreviation" disabled={handlePlayerDetails()} />
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Typography>
+                  Player Role
+                  <span className={classes.mandatory}>*</span>
+                </Typography>
+
+                <RHFSelect name="playerRoleId" disabled={handlePlayerDetails()}>
+                  <option value="">Select</option>
+                  {playerRoles?.map((item, index) => (
+                    <option key={index} value={item.id}>
+                      {item.roleName}
+                    </option>
+                  ))}
+                </RHFSelect>
+
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Typography>
+                  Country
+                  <span className={classes.mandatory}>*</span>
+                </Typography>
+                <RHFSelect name="country" disabled={handlePlayerDetails()}>
+                  <option value="">Select</option>
+                  {allCountry?.map((item, index) => (
+                    <option key={index} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </RHFSelect>
+              </Grid>
+              <Grid item xs={12} sm={6} md={6}>
+                <Typography>
+                  About Player
+                  <span className={classes.mandatory}>*</span>
+                </Typography>
+                <RHFTextField name="aboutPlayer" multiline minRows={2} maxRows={4} disabled={handlePlayerDetails()} />
+              </Grid>
+            </Grid>
+          </div>
+          <div className={classes.section}>
+            <RadioGroup
+              row
+              aria-labelledby="demo-row-radio-buttons-group-label"
+              name="row-radio-buttons-group"
+              value={counterTypeValue}
+              onChange={handleChange}
+            >
+              <FormControlLabel
+                value="0"
+                control={<Radio />}
+                label={<Typography variant="h6">Tournament</Typography>}
+              />
+              <FormControlLabel
+                value="1"
+                disabled
+                control={<Radio />}
+                label={
+                  <Typography variant="h6" style={{ color: '#C6C6C6' }}>
+                    Perpetual
+                  </Typography>
+                }
+              />
+            </RadioGroup>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6} md={3}>
+                <Typography>
+                  Tournament
+                  <span className={classes.mandatory}>*</span>
+                </Typography>
+
+                <RHFSelect name="tournamentId">
+                  <option value="">Select</option>
+                  {allTournament?.map((item, index) => (
+                    <option key={index} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </RHFSelect>
+
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Typography>
+                  Team
+                  <span className={classes.mandatory}>*</span>
+                </Typography>
+
+                <RHFSelect name="teamId">
+                  <option value="">Select</option>
+                  {allTeams?.map((item, index) => (
+                    <option key={index} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </RHFSelect>
+
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Typography>
+                  Reward Date
+                  <span className={classes.mandatory}>*</span>
+                </Typography>
+                <RHFTextField
+                  name="rewardDate"
+                  type="date"
+                  inputProps={{
+                    min: new Date().toISOString().substring(0, 10),
+                  }}
+                  disabled
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Typography>
+                  Player Key
+                  <span className={classes.mandatory}>*</span>
+                </Typography>
+
+                <RHFSelect name="playerKey">
+                  <option value="">Select</option>
+                  {allPlayerKey?.map((item, index) => (
+                    <option key={index} value={item.playerKey}>
+                      {item.playerKey}
+                    </option>
+                  ))}
+                </RHFSelect>
+              </Grid>
+            </Grid>
+          </div>
+          <div className={classes.section}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6} md={3}>
+                <Typography>
+                  Total Supply to be minted
+                  <span className={classes.mandatory}>*</span>
+                </Typography>
+                <RHFTextField name="totalSupply" />
+              </Grid>
+              <Grid item xs={12} sm={6} md={6}>
+                <Typography>
+                  House Wallet Respository Address
+                  <span className={classes.mandatory}>*</span>
+                </Typography>
+                <RHFTextField name="houseWalletAddress" />
+              </Grid>
+            </Grid>
+          </div>
+          <div className={classes.section}>
+            <Typography variant="h6">Media Object / Rendering</Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6} md={3}>
+                <Typography>
+                  Mobile Icon
+                  <span className={classes.mandatory}>*</span>
+                </Typography>
+                <input type="file" name="mobileIcon" id="mobileIcon" onChange={handleMobIconUpload} />
+                {mobileIconUrl && (
+                  <img src={mobileIconUrl} alt="icon" width={80} height={80} className={classes.icon} />
+                )}
+              </Grid>
+              <Grid item xs={12} sm={6} md={6}>
+                <Typography>
+                  Web Icon
+                  <span className={classes.mandatory}>*</span>
+                </Typography>
+                <input type="file" name="webIcon" id="webIcon" onChange={handleWebIconUpload} />
+                {webIconUrl && <img src={webIconUrl} alt="icon" width={80} height={80} className={classes.icon} />}
+              </Grid>
+            </Grid>
+          </div>
+          <Grid container justifyContent="end" className={classes.btnContainer}>
+            <Button variant="outlined" className={classes.btn} onClick={() => navigate(-1)}>
+              Cancel
+            </Button>
+            <Button variant="contained" type="submit" className={classes.btn}>
+              Save
+            </Button>
+            <Button variant="contained" className={classes.btn} onClick={mintPlayerToken} disabled={!playerData}>
+              Mint
+            </Button>
+          </Grid>
+        </FormProvider>
+      </Container>
+      {<SuccessAlert isSuccess={isSuccess} setSuccess={setSuccess} alertMsg={alertMsg} />}
+      <ErrorAlert isError={isError} setError={setError} alertMsg={alertMsg} />
+      {isLoading && <Loader />}
+    </>
+  );
+}
